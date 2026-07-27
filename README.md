@@ -3,8 +3,7 @@ markdown
 
 A 3D interactive developer portfolio built with React, Three.js, and React Three Fiber, alongside a simpler content-first view of the same information.
 
-🔗 **Live site:** [add your deployed URL here]
-📄 **Resume:** [add link or keep in repo]
+**Live site:** [Click Me!](https://subh-aush-singh-portfolio.vercel.app/)]
 
 ## About
 
