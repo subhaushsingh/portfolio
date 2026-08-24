@@ -147,9 +147,15 @@ export const socialLinks = [
 
 export const projects = [
     {
+        name: "TCP HTTP/WS Server",
+        description: "A raw HTTP/1.1 and WebSocket server built entirely from scratch on Node.js's native net module. Features hand-rolled TCP buffering, request parsing, chunked encoding, gzip compression, and RFC 6455 WebSocket framing with zero external dependencies.",
+        link: "", // Leave empty if there's no live deployment yet
+        github: "https://github.com/subhaushsingh/custom-http-server"
+    },
+    {
         iconUrl: car,
         theme: 'btn-back-blue',
-        name: 'Signalist — Stock Market Platform',
+        name: 'Signalist Stock Market Platform',
         description: 'Full-stack stock analysis platform with real-time market data, interactive TradingView charts, and watchlist-driven portfolio tracking via Finnhub. Secure Next.js API routes with BetterAuth, rate limiting, and Inngest-powered background workflows for daily market digest emails.',
         link: 'https://signalist-one-pink.vercel.app/',
         github: 'https://github.com/subhaushsingh/Stock-app',
@@ -157,11 +163,12 @@ export const projects = [
     {
         iconUrl: estate,
         theme: 'btn-back-black',
-        name: 'Credex Audit — AI Spend Diagnostic Tool',
+        name: 'Credex Audit AI Spend Diagnostic Tool',
         description: 'Diagnostic tool that flags redundant AI subscriptions and recommends tier downgrades. Shipped a decoupled Express API (custom rate-limiting, HPP protection) instead of Next.js API routes for clean process control; pivoted to Groq (llama-3.1-8b-instant) to cut response time under 2s with no cold starts.',
         link: 'https://credex-audit.vercel.app/',
         github: 'https://github.com/subhaushsingh',
     },
+    
 ];
 
 export const contributions = [
