@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
 
@@ -14,6 +14,24 @@ const SECTIONS = [
   { id: "contact", label: "Contact" },
 ];
 
+// Generates a vertical wavy/zigzag SVG path string (top -> bottom)
+const generateWavePath = (height, width, humps = 6) => {
+  if (!height || !width) return "";
+  const midX = width / 2;
+  const amp = width * 0.38; // how wide the zigzag swings
+  const segH = height / humps;
+  let d = `M ${midX} 0`;
+
+  for (let i = 0; i < humps; i++) {
+    const y0 = i * segH;
+    const y1 = y0 + segH;
+    const dir = i % 2 === 0 ? 1 : -1;
+    const cx = midX + dir * amp;
+    d += ` C ${cx} ${y0 + segH * 0.25}, ${cx} ${y1 - segH * 0.25}, ${midX} ${y1}`;
+  }
+  return d;
+};
+
 const Landing2D = () => {
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
@@ -23,12 +41,86 @@ const Landing2D = () => {
   const [isAnimationComplete, setIsAnimationComplete] = useState(false);
   const navigate = useNavigate();
 
+  // --- Reveal footer setup ---
+  const footerRef = useRef(null);
+  const [footerHeight, setFooterHeight] = useState(0);
+  const [time, setTime] = useState("");
+
+  useEffect(() => {
+    if (!footerRef.current) return;
+    const update = () => {
+      const h = footerRef.current.offsetHeight;
+      setFooterHeight(h);
+      // The negative margin trick changes total document/scroll height —
+      // Lenis caches that height, so it must be told to recalc every time
+      // the footer's size changes, or it'll clamp scroll before the
+      // footer ever gets revealed.
+      requestAnimationFrame(() => window.lenis?.resize());
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(footerRef.current);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [isAnimationComplete]);
+
+  useEffect(() => {
+    const updateTime = () => {
+      setTime(
+        new Date().toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        })
+      );
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 30 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Images (skill icons, etc.) loading after Lenis's initial measurement can
+  // also silently change page height — resync once everything has loaded.
+  useEffect(() => {
+    const onLoad = () => window.lenis?.resize();
+    window.addEventListener("load", onLoad);
+    return () => window.removeEventListener("load", onLoad);
+  }, []);
+  // --- end reveal footer setup ---
+
   useLenis();
 
   // Custom Floating Scrollbar Logic
   const { scrollYProgress } = useScroll();
-  
-  const thumbTop = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
+
+  // --- Zigzag scrollbar path setup ---
+  const trackRef = useRef(null);
+  const [trackHeight, setTrackHeight] = useState(0);
+  const trackWidth = 50;
+
+  useEffect(() => {
+    if (!trackRef.current) return;
+    const update = () => setTrackHeight(trackRef.current.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(trackRef.current);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [isAnimationComplete]);
+
+  const pathD = useMemo(
+    () => generateWavePath(trackHeight, trackWidth, 6),
+    [trackHeight]
+  );
+
+  const offsetDistance = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
+  // --- end zigzag scrollbar setup ---
 
   const handleEnterExperience = (e) => {
     e.preventDefault();
@@ -46,20 +138,20 @@ const Landing2D = () => {
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
     }
-    
+
     if (!isAnimationComplete) {
       // Hard lock during animation
       document.body.style.overflow = "hidden";
-      window.lenis?.stop(); 
+      window.lenis?.stop();
       window.scrollTo(0, 0);
     } else {
       // Set to empty string instead of "auto" to prevent the browser from forcefully re-rendering native scrollbars
-      document.body.style.overflow = ""; 
-      window.lenis?.start(); 
-      
+      document.body.style.overflow = "";
+      window.lenis?.start();
+
       // Force Lenis to recalculate the page height immediately after it expands
       setTimeout(() => {
-        window.lenis?.resize(); 
+        window.lenis?.resize();
       }, 50);
     }
   }, [isAnimationComplete]);
@@ -79,7 +171,7 @@ const Landing2D = () => {
       if (currentStep >= totalSteps) {
         clearInterval(interval);
         setTimeout(() => setDisplayName("Subh."), 400);
-        setTimeout(() => setLoading(false), 1200); 
+        setTimeout(() => setLoading(false), 1200);
       }
     }, intervalTime);
 
@@ -108,8 +200,8 @@ const Landing2D = () => {
   }, []);
 
   return (
-    <div className="relative w-full min-h-screen bg-[#050505]">
-      
+    <div className="relative w-full min-h-screen bg-[#050505] overflow-x-hidden">
+
       <style dangerouslySetInnerHTML={{ __html: `
         *::-webkit-scrollbar { 
           display: none !important; 
@@ -121,27 +213,51 @@ const Landing2D = () => {
           -ms-overflow-style: none !important; 
           scrollbar-width: none !important; 
         }
-        html, body {
-          overflow-x: hidden;
-        }
       `}} />
 
-      {/* Premium Floating Scrollbar */}
+      {/* Premium Zigzag Scrollbar */}
       <AnimatePresence>
         {isAnimationComplete && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.5 }}
-            className="fixed right-4 sm:right-6 top-24 bottom-24 w-1.5 bg-white/10 rounded-full z-50 pointer-events-none"
+            ref={trackRef}
+            className="fixed right-4 sm:right-6 top-24 bottom-24 z-50 pointer-events-none"
+            style={{ width: trackWidth }}
           >
-            
-            <div className="absolute inset-x-0 top-0 bottom-16">
-              <motion.div
-                className="absolute w-full h-16 bg-white/40 rounded-full backdrop-blur-sm"
-                style={{ top: thumbTop }}
-              />
-            </div>
+            {trackHeight > 0 && (
+              <>
+                {/* Dashed zigzag track */}
+                <svg
+                  width={trackWidth}
+                  height={trackHeight}
+                  className="absolute inset-0"
+                >
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.15)"
+                    strokeWidth="1.5"
+                    strokeDasharray="1 7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+
+                {/* Marker that travels along the path as you scroll */}
+                <motion.div
+                  className="absolute w-2.5 h-2.5 rounded-full bg-white"
+                  style={{
+                    offsetPath: `path("${pathD}")`,
+                    offsetDistance,
+                    offsetRotate: "0deg",
+                    translateX: "-50%",
+                    translateY: "-50%",
+                    boxShadow: "0 0 10px 2px rgba(255,255,255,0.7)",
+                  }}
+                />
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -156,8 +272,8 @@ const Landing2D = () => {
             }}
             transition={{
               duration: 1.6,
-              times: [0, 0.35, 0.75, 1], 
-              ease: [0.76, 0, 0.24, 1], 
+              times: [0, 0.35, 0.75, 1],
+              ease: [0.76, 0, 0.24, 1],
             }}
             className="fixed inset-0 bg-white flex items-center justify-center z-50 overflow-hidden shadow-2xl origin-center"
           >
@@ -207,15 +323,15 @@ const Landing2D = () => {
       </AnimatePresence>
 
       {/* Main Content Wrapper */}
-      <motion.div 
+      <motion.div
         initial={{ x: "100%", scale: 0.85, borderRadius: "24px" }}
         animate={
-          loading 
-            ? { x: "100%", scale: 0.85, borderRadius: "24px" } 
-            : { 
-                x: ["100%", "100%", "0%", "0%"], 
-                scale: [0.85, 0.85, 0.85, 1], 
-                borderRadius: ["24px", "24px", "24px", "0px"] 
+          loading
+            ? { x: "100%", scale: 0.85, borderRadius: "24px" }
+            : {
+                x: ["100%", "100%", "0%", "0%"],
+                scale: [0.85, 0.85, 0.85, 1],
+                borderRadius: ["24px", "24px", "24px", "0px"]
               }
         }
         transition={{
@@ -268,6 +384,12 @@ const Landing2D = () => {
           ))}
         </nav>
 
+        {/* Scrollable page content — sits above the footer. No negative
+            margin here: the footer needs to contribute its own genuine
+            height to the document so there's real scroll room for the
+            reveal. (A negative margin here would cancel that height out,
+            making the footer permanently unreachable — don't add one.) */}
+        <div className="relative z-20 bg-black">
         {/* Hero */}
         <section
           id="intro"
@@ -363,21 +485,21 @@ const Landing2D = () => {
           className="min-h-screen px-6 sm:px-12 text-center flex flex-col items-center justify-center"
         >
           <h2 className="text-4xl sm:text-5xl font-semibold mb-10">projects.</h2>
-          
+
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto text-left">
             {projects.map((project, index) => (
-              <div 
-                key={project.name} 
+              <div
+                key={project.name}
                 className={`flex flex-col border border-white/10 rounded-xl p-6 hover:border-white/30 transition duration-300 ${
                   index === 2 && projects.length === 3 ? "sm:col-span-2 lg:col-span-1" : ""
                 }`}
               >
                 <h3 className="text-xl font-semibold">{project.name}</h3>
-                
+
                 <p className="text-white/60 mt-3 text-sm flex-grow leading-relaxed">
                   {project.description}
                 </p>
-                
+
                 <div className="mt-6 flex gap-4 text-sm font-medium">
                   {project.link && (
                     <a
@@ -445,24 +567,115 @@ const Landing2D = () => {
             subhaushsingh@gmail.com
           </a>
         </section>
+        </div>
+        {/* end scrollable page content */}
 
-        <footer className="px-6 sm:px-12 py-8 text-white/40 text-sm border-t border-white/10 text-center flex flex-col items-center gap-3">
-          <div className="flex gap-5">
-            {socialLinks
-              .filter((s) => s.name !== "Contact")
-              .map((social) => (
-                <a
-                  key={social.name}
-                  href={social.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-white/50 hover:text-white transition-colors"
-                >
-                  {social.name}
-                </a>
-              ))}
+        {/* Reveal Footer — sticky to the bottom of the viewport. Because it
+            follows the content wrapper normally (no overlap/negative margin),
+            it contributes real extra height to the page. As you scroll
+            through that extra height, the wrapper's opaque bottom edge
+            slides up and off-screen, uncovering this pinned footer. */}
+        <footer
+          ref={footerRef}
+          className="sticky bottom-0 left-0 w-full z-0 overflow-hidden bg-[#0a0a0a] border-t border-white/10"
+        >
+          {/* Light beams background */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute -top-1/2 left-[8%] w-40 h-[220%] bg-gradient-to-b from-white/[0.07] via-white/[0.02] to-transparent rotate-[18deg] blur-3xl" />
+            <div className="absolute -top-1/2 left-[30%] w-32 h-[220%] bg-gradient-to-b from-white/[0.09] via-white/[0.02] to-transparent rotate-[18deg] blur-3xl" />
+            <div className="absolute -top-1/2 left-[55%] w-48 h-[220%] bg-gradient-to-b from-white/[0.06] via-white/[0.02] to-transparent rotate-[18deg] blur-3xl" />
+            <div className="absolute -top-1/2 left-[78%] w-24 h-[220%] bg-gradient-to-b from-white/[0.08] via-white/[0.02] to-transparent rotate-[18deg] blur-3xl" />
           </div>
-          <p>&copy; {new Date().getFullYear()} Subh Aush Singh</p>
+
+          <div className="relative px-6 sm:px-12 pt-24 pb-10 min-h-screen flex flex-col justify-between">
+            {/* Top links */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-12">
+              <div>
+                <h6 className="text-white/40 text-xs uppercase tracking-widest mb-4">
+                  Sitemap
+                </h6>
+                <div className="flex flex-col gap-2">
+                  {SECTIONS.filter((s) => s.id !== "contact").map((s) => (
+                    <a
+                      key={s.id}
+                      href={`#${s.id}`}
+                      onClick={scrollTo(s.id)}
+                      className="text-white/80 hover:text-white transition-colors w-fit"
+                    >
+                      {s.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h6 className="text-white/40 text-xs uppercase tracking-widest mb-4">
+                  Follow me
+                </h6>
+                <div className="flex flex-col gap-2">
+                  {socialLinks
+                    .filter((s) => s.name !== "Contact")
+                    .map((social) => (
+                      <a
+                        key={social.name}
+                        href={social.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-white/80 hover:text-white transition-colors w-fit"
+                      >
+                        {social.name}
+                      </a>
+                    ))}
+                </div>
+              </div>
+
+              <div className="col-span-2">
+                <h4 className="text-2xl sm:text-3xl font-semibold mb-3">
+                  Work With Me:
+                </h4>
+                <a
+                  href="mailto:subhaushsingh@gmail.com"
+                  className="inline-block text-xl sm:text-2xl font-medium underline decoration-white/30 hover:decoration-white underline-offset-8 transition-all"
+                >
+                  subhaushsingh@gmail.com
+                </a>
+              </div>
+            </div>
+
+            {/* Middle row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-16 text-sm">
+              <div>
+                <p className="text-white/40">Based in Kolkata, India</p>
+                <p className="text-white/70 mt-1">Current Time: {time}</p>
+              </div>
+              <div>
+                <p className="text-white/40">Availability</p>
+                <p className="text-white/70 mt-1">
+                  Currently open to backend / SDE roles
+                </p>
+              </div>
+              <div className="sm:text-right">
+                <p className="text-white/40">
+                  &copy; {new Date().getFullYear()} &middot; Subh Aush Singh
+                </p>
+                <p className="text-white/70 mt-1">All Rights Reserved</p>
+              </div>
+            </div>
+
+            {/* Giant wordmark + go to top */}
+            <div className="flex items-end justify-between mt-16">
+              <span className="text-[20vw] sm:text-[11vw] leading-[0.8] font-bold text-white/90 select-none">
+                SUBH
+              </span>
+              <button
+                onClick={scrollTo("intro")}
+                aria-label="Go to top"
+                className="w-12 h-12 shrink-0 mb-2 rounded-full bg-white text-black flex items-center justify-center hover:opacity-80 transition"
+              >
+                &uarr;
+              </button>
+            </div>
+          </div>
         </footer>
       </motion.div>
     </div>
