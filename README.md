@@ -1,5 +1,5 @@
 markdown
-# Subh Aush Singh — 3D Developer Portfolio
+# Subh Aush Singh — Portfolio
 
 A 3D interactive developer portfolio built with React, Three.js, and React Three Fiber, alongside a simpler content-first view of the same information.
 
