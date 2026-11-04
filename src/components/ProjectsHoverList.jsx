@@ -7,6 +7,8 @@ import { motion, useMotionValue, useSpring } from "framer-motion";
  *
  * items: [{ title, label, imageSrc, link?, github? }]
  *
+ * All colors use the theme tokens (--fg / --surface) so it works in light and dark mode.
+ *
  * The preview is positioned with `absolute` inside the list (not `fixed`), because
  * your panels sit inside a transformed, CSS-zoomed container where `fixed` + clientX
  * would land in the wrong place.
@@ -33,7 +35,7 @@ export default function ProjectsHoverList({ items = [] }) {
   return (
     <div
       ref={listRef}
-      className="relative w-full"
+      className="relative w-full text-[rgb(var(--fg))]"
       onMouseMove={onMove}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -43,23 +45,23 @@ export default function ProjectsHoverList({ items = [] }) {
           <div
             key={item.title}
             onMouseEnter={() => setIndex(i)}
-            className="group flex items-center justify-between gap-6 border-t border-white/10 last:border-b py-5 sm:py-6 transition-opacity duration-500"
+            className="group flex items-center justify-between gap-6 border-t border-[rgb(var(--fg)/0.15)] last:border-b py-5 sm:py-6 transition-opacity duration-500"
             style={{ opacity: hovering && index !== i ? 0.35 : 1 }}
           >
-            <h3 className="text-lg sm:text-2xl font-semibold transition-transform duration-500 group-hover:-translate-x-2">
+            <h3 className="text-lg sm:text-2xl font-semibold text-[rgb(var(--fg))] transition-transform duration-500 group-hover:-translate-x-2">
               {item.title}
             </h3>
 
             <div className="flex flex-col items-end gap-2 max-w-[14rem] sm:max-w-xs text-right transition-transform duration-500 group-hover:translate-x-2">
-              <p className="text-xs sm:text-sm text-white/60 leading-relaxed line-clamp-2">{item.label}</p>
-              <div className="relative z-40 flex gap-4 text-xs sm:text-sm font-medium">
+              <p className="text-xs sm:text-sm text-[rgb(var(--fg)/0.65)] leading-relaxed line-clamp-2">{item.label}</p>
+              <div className="relative z-40 flex gap-4 text-xs sm:text-sm font-medium text-[rgb(var(--fg))]">
                 {item.link && (
-                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-white/70 transition">
+                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-[rgb(var(--fg)/0.65)] transition">
                     Live
                   </a>
                 )}
                 {item.github && (
-                  <a href={item.github} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-white/70 transition">
+                  <a href={item.github} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-[rgb(var(--fg)/0.65)] transition">
                     GitHub
                   </a>
                 )}
@@ -76,7 +78,7 @@ export default function ProjectsHoverList({ items = [] }) {
             initial={{ scale: 0 }}
             animate={{ scale: hovering ? 1 : 0 }}
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="w-[300px] h-[188px] overflow-hidden rounded-xl border border-white/10 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] bg-[#0a0a0a]"
+            className="w-[300px] h-[188px] overflow-hidden rounded-xl border border-[rgb(var(--fg)/0.15)] shadow-[0_25px_50px_-12px_rgba(40,30,10,0.35)] bg-[rgb(var(--surface))]"
           >
             {items.map((item, i) => (
               <motion.div
@@ -89,7 +91,7 @@ export default function ProjectsHoverList({ items = [] }) {
                 {item.imageSrc ? (
                   <img src={item.imageSrc} alt={item.title} draggable={false} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/0 text-white/70 text-xl font-semibold">
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[rgb(var(--fg)/0.12)] to-[rgb(var(--fg)/0)] text-[rgb(var(--fg)/0.8)] text-xl font-semibold">
                     {item.title}
                   </div>
                 )}

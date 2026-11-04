@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import * as THREE from "three";
 
 /**
@@ -9,6 +10,12 @@ import * as THREE from "three";
  * Each contribution = { repo: "owner/name", pr: "...", link: "https://..." }
  * Optional: logo (Simple Icons slug), color (hex), image (your own imported file)
  * Click a tile (without dragging) to open its link.
+ * Hover a tile to see a small card saying what the project is. Set `description` on a
+ * contribution to override the built-in blurbs below.
+ *
+ * Props:
+ *   theme: "dark" | "light"  - switches background, grid lines and label colors live
+ *                              (no scene rebuild, so toggling the lamp is instant).
  */
 
 const CELL_SIZE = 0.75;
@@ -16,6 +23,22 @@ const ZOOM_LEVEL = 1.25;
 const LERP = 0.075;
 const TILE = 512;
 const IMAGE_AREA = [0.2, 0.8]; // image occupies 20%–80% of a cell (matches shader)
+
+// Colors the shader/renderer need per theme (values 0..1 for uniforms)
+const PALETTES = {
+  dark: {
+    clear: 0x050505,
+    bg: [5 / 255, 5 / 255, 5 / 255],
+    border: [1, 1, 1, 0.15],
+    text: [160 / 255, 160 / 255, 160 / 255],
+  },
+  light: {
+    clear: 0xe5e0d4, // matches --surface in light mode (229 224 212)
+    bg: [229 / 255, 224 / 255, 212 / 255],
+    border: [52 / 255, 48 / 255, 43 / 255, 0.2],
+    text: [52 / 255, 48 / 255, 43 / 255],
+  },
+};
 
 const vertexShader = `
   varying vec2 vUv;
@@ -30,6 +53,7 @@ const fragmentShader = `
   uniform vec2 uResolution;
   uniform vec4 uBorderColor;
   uniform vec3 uBg;
+  uniform vec3 uTextColor;
   uniform float uZoom;
   uniform float uCellSize;
   uniform float uTextureCount;
@@ -89,14 +113,16 @@ const fragmentShader = `
       vec2 textCoord = vec2((cellUV.x - 0.05) / 0.9, (cellUV.y - textY) / textHeight);
       textCoord.y = 1.0 - textCoord.y;
       vec2 atlasUV = (atlasPos + textCoord) / atlasSize;
-      vec4 textColor = texture2D(uTextAtlas, atlasUV);
-      color = mix(uBg, textColor.rgb, textColor.a);
+      vec4 textSample = texture2D(uTextAtlas, atlasUV);
+      // only the atlas alpha is used; the color comes from the theme
+      color = mix(uBg, uTextColor, textSample.a);
     }
 
     color = mix(color, uBorderColor.rgb, (1.0 - gridMask) * uBorderColor.a);
 
+    // vignette fades toward the theme background (not black) so light mode stays light
     float fade = 1.0 - smoothstep(1.2, 1.8, radius);
-    gl_FragColor = vec4(color * fade, 1.0);
+    gl_FragColor = vec4(mix(uBg, color, fade), 1.0);
   }
 `;
 
@@ -133,6 +159,19 @@ const BRANDS = {
   marketcalls: { color: "#0F766E" },
   nextcloud: { slug: "nextcloud", color: "#0082C9" },
 };
+
+// What each project is, shown when you hover its tile. Keys are lowercase "owner/repo".
+// Override per contribution with a `description` field in your constants.
+const DESCRIPTIONS = {
+  "emscripten-core/emscripten": "Compiler toolchain that turns C and C++ into WebAssembly so it runs in the browser.",
+  "collaboraonline/online": "Collaborative online office suite: documents, spreadsheets and slides in the browser.",
+  "marketcalls/openalgo": "Open-source algo trading platform that connects strategies to brokers through one API.",
+  "nextcloud/server": "Self-hosted cloud platform for files, calendars, contacts and collaboration.",
+  "strapi/strapi": "Open-source headless CMS for building and managing content APIs.",
+};
+
+const describe = (c) =>
+  c.description ?? c.summary ?? DESCRIPTIONS[c.repo.toLowerCase()] ?? "An open-source project I contributed to.";
 
 const brandOf = (c) => {
   const repo = c.repo.toLowerCase();
@@ -255,7 +294,8 @@ function buildTextAtlas(items) {
     // so draw as a 2048x256 strip squeezed into the 512x512 tile.
     ctx.setTransform(0.25, 0, 0, 2, x, y);
     ctx.font = "80px monospace";
-    ctx.fillStyle = "rgba(160,160,160,1)";
+    // Only the alpha channel matters: the shader colors the text per theme.
+    ctx.fillStyle = "rgba(255,255,255,1)";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     ctx.fillText(label, 30, 128);
@@ -278,9 +318,41 @@ const makeTexture = (canvas) => {
 };
 
 // ---------- component ----------
-export default function OpenSourceGallery({ contributions = [], showHint = true }) {
+export default function OpenSourceGallery({ contributions = [], theme = "dark" }) {
   const containerRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState(-1); // tile under the pointer, -1 = none
+  const tipRef = useRef(null);
+  const posRef = useRef({ x: 0, y: 0 });
+
+  // Keep the hover card next to the pointer without re-rendering on every move.
+  const positionTip = () => {
+    const el = tipRef.current;
+    if (!el) return;
+    const { x, y } = posRef.current;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    let tx = x + 18;
+    let ty = y + 18;
+    if (tx + w > window.innerWidth - 12) tx = x - w - 18;
+    if (ty + h > window.innerHeight - 12) ty = y - h - 18;
+    el.style.transform = `translate3d(${Math.max(8, tx)}px, ${Math.max(8, ty)}px, 0)`;
+  };
+  const positionTipRef = useRef(positionTip);
+  positionTipRef.current = positionTip;
+
+  useLayoutEffect(() => {
+    positionTip();
+  }, [hoverIdx]);
+
+  // Latest theme + a hook into the running scene, so a theme change doesn't rebuild WebGL.
+  const themeRef = useRef(theme);
+  const applyThemeRef = useRef(null);
+  themeRef.current = theme;
+
+  useEffect(() => {
+    applyThemeRef.current?.(theme);
+  }, [theme]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -314,7 +386,7 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight, false);
-    renderer.setClearColor(0x050505);
+    renderer.setClearColor((PALETTES[themeRef.current] || PALETTES.dark).clear);
     const el = renderer.domElement;
     el.style.cssText = "display:block;width:100%;height:100%;cursor:grab;touch-action:none";
     container.appendChild(el);
@@ -325,6 +397,18 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
       material.uniforms.uZoom.value = state.zoom;
       renderer.render(scene, camera);
     };
+
+    // Push the theme colors into the shader + renderer
+    const applyTheme = (name) => {
+      const p = PALETTES[name] || PALETTES.dark;
+      renderer.setClearColor(p.clear);
+      if (!material) return;
+      material.uniforms.uBg.value.set(...p.bg);
+      material.uniforms.uBorderColor.value.set(...p.border);
+      material.uniforms.uTextColor.value.set(...p.text);
+      draw();
+    };
+    applyThemeRef.current = applyTheme;
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
@@ -367,11 +451,16 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
       state.start = { x: e.clientX, y: e.clientY };
       state.prev = { x: e.clientX, y: e.clientY };
       el.style.cursor = "grabbing";
+      setHoverIdx(-1);
     };
 
     const onPointerMove = (e) => {
+      posRef.current = { x: e.clientX, y: e.clientY };
       if (!state.dragging) {
-        el.style.cursor = pick(e.clientX, e.clientY) >= 0 ? "pointer" : "grab";
+        const idx = pick(e.clientX, e.clientY);
+        el.style.cursor = idx >= 0 ? "pointer" : "grab";
+        setHoverIdx(idx);
+        positionTipRef.current();
         return;
       }
       const dx = e.clientX - state.prev.x;
@@ -384,6 +473,7 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
     };
 
     const endDrag = () => {
+      setHoverIdx(-1);
       state.dragging = false;
       state.targetZoom = 1;
       el.style.cursor = "grab";
@@ -421,14 +511,17 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
         imageTex = makeTexture(imageCanvas);
         textTex = makeTexture(textCanvas);
 
+        const p = PALETTES[themeRef.current] || PALETTES.dark;
+
         material = new THREE.ShaderMaterial({
           vertexShader,
           fragmentShader,
           uniforms: {
             uOffset: { value: new THREE.Vector2(0, 0) },
             uResolution: { value: new THREE.Vector2(container.clientWidth, container.clientHeight) },
-            uBorderColor: { value: new THREE.Vector4(1, 1, 1, 0.15) },
-            uBg: { value: new THREE.Vector3(5 / 255, 5 / 255, 5 / 255) },
+            uBorderColor: { value: new THREE.Vector4(...p.border) },
+            uBg: { value: new THREE.Vector3(...p.bg) },
+            uTextColor: { value: new THREE.Vector3(...p.text) },
             uZoom: { value: 1 },
             uCellSize: { value: CELL_SIZE },
             uTextureCount: { value: n },
@@ -454,6 +547,7 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
 
     return () => {
       cancelled = true;
+      applyThemeRef.current = null;
       stop();
       io.disconnect();
       ro.disconnect();
@@ -472,14 +566,31 @@ export default function OpenSourceGallery({ contributions = [], showHint = true 
   }, [contributions]);
 
   return (
-    <div className="absolute inset-0 bg-[#050505]" style={{ touchAction: "none" }}>
+    <div className="absolute inset-0 bg-[rgb(var(--surface))]" style={{ touchAction: "none" }}>
       <div
         ref={containerRef}
         className="absolute inset-0 transition-opacity duration-700"
         style={{ opacity: ready ? 1 : 0 }}
       />
+      {hoverIdx >= 0 &&
+        contributions[hoverIdx] &&
+        createPortal(
+          <div
+            ref={tipRef}
+            className="pointer-events-none fixed left-0 top-0 z-[9998] w-64 rounded-xl border border-[rgb(var(--fg)/0.15)] bg-[rgb(var(--surface)/0.92)] px-3.5 py-3 text-[rgb(var(--fg))] shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-md"
+            style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
+          >
+            <p className="text-sm font-semibold leading-snug">{contributions[hoverIdx].repo}</p>
+            <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg)/0.7)]">{describe(contributions[hoverIdx])}</p>
+            <p className="mt-2 text-[11px] text-[rgb(var(--fg)/0.5)]">
+              {contributions[hoverIdx].pr?.match(/#\d+/)?.[0] ? `PR ${contributions[hoverIdx].pr.match(/#\d+/)[0]} · ` : ""}
+              Click to open
+            </p>
+          </div>,
+          document.body
+        )}
       {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center text-white/40 text-xs sm:text-sm">
+        <div className="absolute inset-0 flex items-center justify-center text-[rgb(var(--fg)/0.5)] text-xs sm:text-sm">
           Loading contributions…
         </div>
       )}
